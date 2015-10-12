@@ -47,11 +47,22 @@ public class AliyunFileManagerTest {
 	
 	@Test
 	public void testUpload() throws IOException{
-		String filename = "中文名称.jpg";
-		File file = new File("C:/中文.jpg");
+//		String filename = "22.jpg";
+//		File file = new File("C:/22.jpg");
+//		String filename = "11.zip";
+//		File file = new File("C:/11.zip");
+//		String filename = "88.zip";
+//		File file = new File("C:/88.zip");
+//		String filename = "Desktop.zip";
+//		File file = new File("C:/Desktop.zip");
+//		String filename = "25.zip";
+//		File file = new File("C:/25.zip");
+		String filename = "144.zip";
+		File file = new File("C:/144.zip");
 		InputStream is = new FileInputStream(file);
 		byte[] content = IOUtils.toByteArray(is);
 		afm.upload(filename, content);
+		is.close();
 	}
 	
 	@Test(expected = IllegalArgumentException.class)

@@ -7,16 +7,26 @@ package com.smarttrip.platform.file;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.aliyun.oss.ClientConfiguration;
 import com.aliyun.oss.OSSClient;
 import com.aliyun.oss.common.utils.IOUtils;
+import com.aliyun.oss.model.CompleteMultipartUploadRequest;
+import com.aliyun.oss.model.CompleteMultipartUploadResult;
+import com.aliyun.oss.model.InitiateMultipartUploadRequest;
+import com.aliyun.oss.model.InitiateMultipartUploadResult;
 import com.aliyun.oss.model.OSSObject;
 import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PartETag;
+import com.aliyun.oss.model.UploadPartRequest;
+import com.aliyun.oss.model.UploadPartResult;
 import com.smarttrip.platform.util.UUIDUtils;
 
 /**
@@ -66,14 +76,16 @@ public class AliyunFileManager {
 	}
 	
 	private OSSClient getOSSClient(){
-		return new OSSClient(endpoint,accessKeyId, accessKeySecret);
+		ClientConfiguration conf = new ClientConfiguration(); 
+		conf.setSocketTimeout(0);
+		return new OSSClient(endpoint,accessKeyId, accessKeySecret, conf);
 	}
 	
 	/**
-	 * 
+	 * 上传文件
 	 * @author songjiesdnu@163.com
 	 * @param filename：文件名称
-	 * @param content：文件的内容
+	 * @param content：文件的内容，用字节数组存储
 	 * @return 文件在OSS中的唯一标识，即fileId
 	 */
 	public String upload(String filename, byte[] content){
@@ -83,10 +95,8 @@ public class AliyunFileManager {
 		}
 		OSSClient client = this.getOSSClient();
 		String key = UUIDUtils.getUUID();
-		InputStream is = new ByteArrayInputStream(content);
 		
 		ObjectMetadata meta = new ObjectMetadata();
-	    meta.setContentLength(content.length);//必须设置ContentLength
 	    Map<String, String> userMetadata = new HashMap<String, String>();
 	    if(filename == null  ||  filename.equals("")){
 	    	filename = key;
@@ -94,14 +104,53 @@ public class AliyunFileManager {
 	    logger.debug("filename:" + filename);
 	    userMetadata.put("filename", filename);
 	    meta.setUserMetadata(userMetadata);
-	    
-	    client.putObject(bucketName, key, is, meta);
-	    logger.debug("upload file to OSS--end");
+		//开始Multipart Upload
+		InitiateMultipartUploadRequest initiateMultipartUploadRequest = new InitiateMultipartUploadRequest(bucketName, key, meta);
+		InitiateMultipartUploadResult initiateMultipartUploadResult = client.initiateMultipartUpload(initiateMultipartUploadRequest);
+		
+		logger.debug("UploadId: " + initiateMultipartUploadResult.getUploadId());
+		
+		//设置每块为 5M
+		final int partSize = 1024 * 1024 * 5;
+		//计算分块数目
+		int partCount = (int) (content.length / partSize);
+		if (content.length % partSize != 0){
+		    partCount++;
+		}
+		//新建一个List保存每个分块上传后的ETag和PartNumber
+		List<PartETag> partETags = new ArrayList<PartETag>();
+		for(int i = 0; i < partCount; i++){
+			InputStream partIs = new ByteArrayInputStream(content);
+		    //计算每个分块的大小
+		    int size = partSize < content.length-i*partSize ?
+		            partSize : content.length-i*partSize;
+		    byte[] copy = new byte[size];
+		    System.arraycopy(content, partSize*i, copy, 0, size);
+		    //创建UploadPartRequest，上传分块
+		    UploadPartRequest uploadPartRequest = new UploadPartRequest();
+		    uploadPartRequest.setBucketName(bucketName);
+		    uploadPartRequest.setKey(key);
+		    uploadPartRequest.setUploadId(initiateMultipartUploadResult.getUploadId());
+		    uploadPartRequest.setInputStream(partIs);
+		    uploadPartRequest.setPartSize(size);
+		    uploadPartRequest.setPartNumber(i + 1);
+		    UploadPartResult uploadPartResult = client.uploadPart(uploadPartRequest);
+		    //将返回的PartETag保存到List中
+		    partETags.add(uploadPartResult.getPartETag());
+		}
+		CompleteMultipartUploadRequest completeMultipartUploadRequest =
+		        new CompleteMultipartUploadRequest(bucketName,key, initiateMultipartUploadResult.getUploadId(), partETags);
+		//完成分块上传
+		CompleteMultipartUploadResult completeMultipartUploadResult =
+		        client.completeMultipartUpload(completeMultipartUploadRequest);
+		logger.debug("ETag:" + completeMultipartUploadResult.getETag());
+		logger.debug("文件的key：" + key);
+		logger.debug("upload file to OSS--end");
 	    return key;
 	}
 	
 	/**
-	 * 从OSS上现在文件
+	 * 下载文件
 	 * @author songjiesdnu@163.com
 	 * @param fileId
 	 * @return
@@ -127,6 +176,11 @@ public class AliyunFileManager {
 		return fileInfo;
 	}
 	
+	/**
+	 * 检查文件内容
+	 * @author songjiesdnu@163.com
+	 * @param content
+	 */
 	private void checkContent(byte[] content){
 		boolean exist = true;
 		if(content == null){

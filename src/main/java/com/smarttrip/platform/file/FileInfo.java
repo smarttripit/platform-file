@@ -9,9 +9,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Function: TODO ADD FUNCTION. <br/>
+ * 文件. <br/>
  * date: 2015年9月29日 下午2:29:21 <br/>
- *
  * @author songjiesdnu@163.com
  */
 public class FileInfo implements Serializable{
